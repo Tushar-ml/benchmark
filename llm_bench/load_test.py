@@ -167,6 +167,30 @@ class LengthSampler:
         return s
 
 
+class RequestCounter:
+    """Tracks total completed requests and stops the runner when --max-requests is reached."""
+    lock = threading.Lock()
+    completed = 0
+    target = None
+    environment = None
+
+    @classmethod
+    def init(cls, environment):
+        with cls.lock:
+            cls.environment = environment
+            cls.target = environment.parsed_options.max_requests
+
+    @classmethod
+    def increment(cls):
+        if cls.target is None:
+            return
+        with cls.lock:
+            cls.completed += 1
+            if cls.completed >= cls.target:
+                print(f"Reached {cls.target} requests, stopping test")
+                cls.environment.runner.quit()
+
+
 class InitTracker:
     lock = threading.Lock()
     users = None
@@ -668,6 +692,7 @@ class LLMUser(HttpUser):
             "logprobs": self.environment.parsed_options.logprobs,
         }
         InitTracker.notify_init(self.environment, logging_params)
+        RequestCounter.init(self.environment)
 
         self.tokenizer = tiktoken.encoding_for_model("gpt-4")
 
@@ -879,6 +904,8 @@ class LLMUser(HttpUser):
                 self.first_done = True
                 InitTracker.notify_first_request()
 
+            RequestCounter.increment()
+
 
 @events.init_command_line_parser.add_listener
 def init_parser(parser):
@@ -1038,6 +1065,13 @@ def init_parser(parser):
         type=int,
         help="How many sequences to generate (makes sense to use with non-zero temperature).",
     )
+    parser.add_argument(
+        "--max-requests",
+        type=int,
+        default=None,
+        help="Stop the test after this many total requests complete (across all users). "
+             "Use instead of or alongside -t when individual requests may exceed the time limit.",
+    )
 
 @events.quitting.add_listener
 def _(environment, **kw):
@@ -1072,7 +1106,7 @@ def _(environment, **kw):
         entries["latency_per_token"] = ""
     entries["num_requests"] = total_latency.num_requests
     entries["qps"] = total_latency.total_rps
-    percentile_to_report = [50, 90, 99, 99.9]
+    percentile_to_report = [50, 90, 95, 99, 99.9]
     percentile_metrics = ["time_to_first_token", "total_latency"]
     for percentile_metric in percentile_metrics:
         metrics = environment.stats.entries[percentile_metric, "METRIC"]
