@@ -18,14 +18,14 @@ import subprocess
 from argparse import Namespace
 from itertools import product
 import time
-
+from utils import generate_config_permutations, run_command, kill_process, wait_for_health, get_server_args_from_config_for_mlflow, get_full_command_shell_from_config, ensure_model_downloaded
 
 from bench_serving import run_benchmark
 
 # TODO: server launch command and readiness check
 # ── Benchmark matrix ─────────────────────────────────────────────────────
 
-MODEL_NAME = "meta-llama/Llama-3.2-1B-Instruct"
+MODEL_NAME = "test"
 CONCURRENCIES = [2,4,8,16,32,64,128,256,512]
 INPUT_TOKS = [50, 100, 256, 512,1024,2048,4096,8192,10000]
 OUTPUT_TOKS = [500]
@@ -35,23 +35,9 @@ SUMMARY_FILE = f"{MODEL_NAME.split('/')[-1]}.csv"
 experiment_name = MODEL_NAME
 warmup = False
 
-MODEL_PARAMS = {
-    "model": "meta-llama/Llama-3.2-1B-Instruct",
-    "server": "vllm",
-    "version": "0.16.0",
-    "server_args::max_num_seqs": 128,
-    "server_args::gpu_memory_utilization": 0.95,
-    "gpu_type": "h100",
-    "gpu_count": 1,
-    "gpu_arch": "sxm"
-}
 
-REQUEST_PARAMS = {
-    "request_rate": None,
-    "stream": True,
-    "chat": True,
-    "temperature": 0.0,
-}
+MODEL_PARAMS = {}
+REQUEST_PARAMS = {}
 
 BASE_URL = "http://localhost:8000/v1"
 API_KEY = os.getenv("BENCH_API_KEY", "")
@@ -204,4 +190,47 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+
+    import os
+    os.environ["MLFLOW_TRACKING_URI"] = "http://admin:BRwYSbNKTq@a8e6c4207413949b898c70462c6f63c6-705429131.us-west-2.elb.amazonaws.com:5000/"
+
+    base_config_dir = "/home/ubuntu/benchmark/configs/glm-4p6/h200/sglang"
+    search_space_path = os.path.join(base_config_dir, "search_space.json")
+    config_paths = generate_config_permutations(search_space_path, base_config_dir)
+    print(f"Generated {len(config_paths)} configs")
+
+
+    for config_path in config_paths:
+
+        server_args = get_server_args_from_config_for_mlflow(config_path)
+        full_command = get_full_command_shell_from_config(config_path)
+        model_name = server_args["server_args::model"]
+        process = None
+        try:
+            ensure_model_downloaded(model_name)
+            process = run_command(full_command)
+            if not wait_for_health():
+                print("Health endpoint not ready after 20 seconds, killing process")
+                kill_process(process)
+                raise RuntimeError("Health endpoint not ready after 20 seconds")
+
+            MODEL_PARAMS = {
+                "server": "sglang",
+                "version": "0.5.9",
+                **server_args,
+            }
+
+            REQUEST_PARAMS = {
+                "request_rate": None,
+                "stream": True,
+                "chat": True,
+                "temperature": 0.0,
+            }
+
+
+            main()
+        except Exception as e:
+            print(f"Error: {e}")
+        finally:
+            if process:
+                kill_process(process)
