@@ -25,18 +25,18 @@ from bench_serving import run_benchmark
 # TODO: server launch command and readiness check
 # ── Benchmark matrix ─────────────────────────────────────────────────────
 
-MODEL_NAME = "openai/gpt-oss-120b"
+MODEL_NAME = "meta-llama/Llama-3.2-1B-Instruct"
 CONCURRENCIES = [2,4,8,16,32,64,128,256,512]
 INPUT_TOKS = [50, 100, 256, 512,1024,2048,4096,8192,10000]
 OUTPUT_TOKS = [500]
 PCMLS = [0, 0.5, 0.8, 0.95]
 NUM_REQUESTS = 0
-SUMMARY_FILE = f"{MODEL_NAME}.csv"
+SUMMARY_FILE = f"{MODEL_NAME.split('/')[-1]}.csv"
 experiment_name = MODEL_NAME
 warmup = False
 
 MODEL_PARAMS = {
-    "model": "openai/gpt-oss-120b",
+    "model": "meta-llama/Llama-3.2-1B-Instruct",
     "server": "vllm",
     "version": "0.16.0",
     "server_args::max_num_seqs": 128,
