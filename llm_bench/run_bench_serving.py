@@ -8,8 +8,6 @@ bench_serving.py's --summary-file flag (original behaviour).
 
 Optional env vars for MLflow mode:
     MLFLOW_TRACKING_URI     – MLflow server URL
-    MLFLOW_EXPERIMENT_NAME  – Experiment name
-    MLFLOW_RUN_NAME         – Custom run name (auto-generated if omitted)
 """
 
 import asyncio
