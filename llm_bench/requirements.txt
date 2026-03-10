@@ -5,3 +5,4 @@ gevent
 transformers
 locust-plugins
 tiktoken
+mlflow

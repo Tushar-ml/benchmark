@@ -653,7 +653,7 @@ class LLMUser(HttpUser):
         prompt_chars = self.environment.parsed_options.prompt_chars
 
         prompt_suffix = random.choice(prompts)
-        prompt_suffix_tokens = len(tokenizer.encode(prompt_suffix))
+        prompt_suffix_tokens = len(tokenizer.encode(prompt_suffix,  allowed_special="all"))
 
         if self.environment.parsed_options.prompt_text:
             self.input = _load_curl_like_data(
@@ -698,7 +698,7 @@ class LLMUser(HttpUser):
 
         if self.tokenizer:
             self.prompt_tokenizer_tokens = len(
-                self.tokenizer.encode(self._get_input()[0])
+                self.tokenizer.encode(self._get_input()[0],  allowed_special="all")
             )
         else:
             self.prompt_tokenizer_tokens = None
@@ -726,7 +726,7 @@ class LLMUser(HttpUser):
     def _get_input(self):
         def _maybe_randomize(prompt):
 
-            prompt_suffix_tokens = len(tokenizer.encode(prompt_suffix))
+            prompt_suffix_tokens = len(tokenizer.encode(prompt_suffix,  allowed_special="all"))
             
             if not self.environment.parsed_options.prompt_randomize:
                 prompt = (PROMPT_PREFIX_TOKEN * (self.environment.parsed_options.prompt_tokens - prompt_suffix_tokens)) + prompt
@@ -835,7 +835,7 @@ class LLMUser(HttpUser):
             else:
                 num_tokens = total_usage_tokens
             if self.tokenizer:
-                num_tokenizer_tokens = len(self.tokenizer.encode(combined_text))
+                num_tokenizer_tokens = len(self.tokenizer.encode(combined_text,  allowed_special="all"))
                 if num_tokens is None:
                     num_tokens = num_tokenizer_tokens
                 elif num_tokens != num_tokenizer_tokens:

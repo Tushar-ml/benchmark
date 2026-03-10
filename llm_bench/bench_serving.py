@@ -226,7 +226,7 @@ async def send_request(
                 if t_first_token is None:
                     t_first_token = t_end
 
-                output_tok_count = usage_comp_tokens or len(tokenizer.encode(combined_text))
+                output_tok_count = usage_comp_tokens or len(tokenizer.encode(combined_text, allowed_special="all"))
 
                 return RequestResult(
                     request_id=request_id,
@@ -283,6 +283,9 @@ def percentile(sorted_data: list[float], p: float) -> float:
 # ---------------------------------------------------------------------------
 
 async def run_benchmark(args):
+    if args.num_requests <= 0:
+        args.num_requests = max(args.concurrency * 5, 10)
+
     semaphore = asyncio.Semaphore(args.concurrency)
 
     headers = {"Content-Type": "application/json"}
@@ -322,7 +325,7 @@ async def run_benchmark(args):
         for i in range(args.num_requests):
             task = asyncio.create_task(send_request(i, args, session, semaphore))
             tasks.append(task)
-            if args.request_rate and args.request_rate != float("inf"):
+            if args.request_rate is not None and 0 < args.request_rate < float("inf"):
                 await asyncio.sleep(1.0 / args.request_rate)
 
         for coro in asyncio.as_completed(tasks):
@@ -346,7 +349,7 @@ async def run_benchmark(args):
 
     if not ok_results:
         print("\nAll requests failed!")
-        return 1
+        return 1, {}
 
     latencies = sorted(r.total_latency_ms for r in ok_results)
     ttfts = sorted(r.ttft_ms for r in ok_results) if args.stream else []
@@ -429,7 +432,8 @@ async def run_benchmark(args):
             writer.writerow(entries)
         print(f"Results appended to {args.summary_file}")
 
-    return 1 if fail_count > 0 else 0
+    exit_code = 1 if fail_count > 0 else 0
+    return exit_code, entries
 
 
 # ---------------------------------------------------------------------------
@@ -447,8 +451,9 @@ def parse_args():
         help="Base URL of the API (e.g. http://localhost:8000/v1)",
     )
     parser.add_argument(
-        "--num-requests", type=int, required=True,
-        help="Total number of requests to send",
+        "--num-requests", type=int, default=0,
+        help="Total number of requests to send. "
+             "If 0 or omitted, defaults to max(concurrency * 5, 10)",
     )
     parser.add_argument(
         "--concurrency", type=int, default=1,
@@ -529,7 +534,7 @@ def parse_args():
 
 def main():
     args = parse_args()
-    exit_code = asyncio.run(run_benchmark(args))
+    exit_code, _entries = asyncio.run(run_benchmark(args))
     sys.exit(exit_code)
 
 
