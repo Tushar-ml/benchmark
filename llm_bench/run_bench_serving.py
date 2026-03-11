@@ -62,7 +62,7 @@ METRIC_KEYS = {
 def use_mlflow() -> bool:
     return bool(
         os.environ.get("MLFLOW_TRACKING_URI")
-    ) and not warmup
+    ) and not do_warmup
 
 def get_device_info() -> dict:
     """Query nvidia-smi for GPU device information."""
