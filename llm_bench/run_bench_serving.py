@@ -19,22 +19,22 @@ from argparse import Namespace
 from itertools import product
 import time
 from utils import generate_config_permutations, launch_server_cmd, kill_process_tree, wait_for_server, get_server_args_from_config_for_mlflow, get_full_command_shell_from_config, ensure_model_downloaded
-
+import json
 from bench_serving import run_benchmark
 
 # TODO: server launch command and readiness check
 # ── Benchmark matrix ─────────────────────────────────────────────────────
 
 MODEL_NAME = "zai-org/GLM-4.6"
-CONCURRENCIES = [1,2,4,8,16,32,64,128,256,512]
-INPUT_TOKS = [50, 100, 256, 512,1024,2048,4096,8192,10000]
-OUTPUT_TOKS = [500]
+CONCURRENCIES = [1, 10, 20, 50, 100]
+INPUT_TOKS = [100, 1000, 10000]
+OUTPUT_TOKS = [200]
 PCMLS = [0]
 NUM_REQUESTS = 0
 SUMMARY_FILE = f"{MODEL_NAME.split('/')[-1]}.csv"
 experiment_name = MODEL_NAME
-warmup = True
-dry_run = False
+warmup = False
+dry_run = True
 
 
 MODEL_PARAMS = {}
@@ -114,7 +114,7 @@ def log_to_mlflow(mlflow, entries: dict, bench_params: dict):
 
 # ── Main ─────────────────────────────────────────────────────────────────
 
-def main():
+def main(dry_run_json=None):
     mlflow_enabled = use_mlflow()
 
     if mlflow_enabled:
@@ -161,6 +161,7 @@ def main():
                 "concurrency": concurrency,
                 "input_tokens": input_tok,
                 "output_tokens": output_tok,
+                "prompt_cache_fraction": pcml_frac,
                 "prompt_cache_max_len": pcml,
                 "prompt_randomize": True
             }
@@ -172,15 +173,23 @@ def main():
                 f"{MODEL_NAME.split('/')[-1]}_c{concurrency}_i{input_tok}_o{output_tok}_{time.strftime('%Y-%m-%d-%H-%M-%S')}",
             )
 
-            with mlflow.start_run(run_name=run_name):
-                exit_code, entries = asyncio.run(run_benchmark(args))
+            if not dry_run_json:
+                with mlflow.start_run(run_name=run_name):
+                    exit_code, entries = asyncio.run(run_benchmark(args))
 
-                if entries:
-                    log_to_mlflow(mlflow, entries, bench_params)
-                    print(f"Logged run '{run_name}' to MLflow ({len(entries)} fields)")
-                else:
-                    mlflow.set_tag("status", "all_requests_failed")
-                    print(f"Run '{run_name}' failed – tagged in MLflow")
+                    if entries:
+                        log_to_mlflow(mlflow, entries, bench_params)
+                        print(f"Logged run '{run_name}' to MLflow ({len(entries)} fields)")
+                    else:
+                        mlflow.set_tag("status", "all_requests_failed")
+                        print(f"Run '{run_name}' failed – tagged in MLflow")
+            else:
+                dry_run_json["run_name"] = run_name
+                dry_run_json["params"].update(bench_params)
+
+                with open(f"dry_runs/dry_run_{run_name}.json", "w") as f:
+                    json.dump(dry_run_json, f)
+
         else:
             exit_code, _entries = asyncio.run(run_benchmark(args))
 
@@ -195,7 +204,7 @@ if __name__ == "__main__":
     import os
     os.environ["MLFLOW_TRACKING_URI"] = "http://admin:*********@a8e6c4207413949b898c70462c6f63c6-705429131.us-west-2.elb.amazonaws.com:5000/"
 
-    base_config_dir = "/workspace/benchmark/configs/glm-4p6/h200/vllm"
+    base_config_dir = "../configs/glm-4p6/h200/vllm"
     search_space_path = os.path.join(base_config_dir, "search_space.json")
     config_paths = generate_config_permutations(search_space_path, base_config_dir)
     print(f"Generated {len(config_paths)} configs")
@@ -208,15 +217,13 @@ if __name__ == "__main__":
         model_name = server_args["server_args::model"]
         process = None
         try:
-            ensure_model_downloaded(model_name)
-            process = launch_server_cmd(full_command)
-            wait_for_server(BASE_URL, process=process)
-            print("Server is ready")
 
             MODEL_PARAMS = {
                 "server": "vllm",
                 "version": "0.16.0",
                 "quantization": "fp16", #fp16,fp8,mxfp4,nvfp4
+                "gpu::type": "h200",
+                "gpu::count": 2,
                 **server_args,
             }
 
@@ -227,8 +234,21 @@ if __name__ == "__main__":
                 "temperature": 0.0,
             }
 
+            dry_run_json = None
+            if dry_run:
+                os.makedirs("dry_runs", exist_ok=True)
+                dry_run_json = {
+                    "params": MODEL_PARAMS
+                }
+                dry_run_json["params"].update(REQUEST_PARAMS)
 
-            main()
+            else:
+                ensure_model_downloaded(model_name)
+                process = launch_server_cmd(full_command)
+                wait_for_server(BASE_URL, process=process)
+                print("Server is ready")
+
+            main(dry_run_json)
         except Exception as e:
             print(f"Error: {e}")
         finally:

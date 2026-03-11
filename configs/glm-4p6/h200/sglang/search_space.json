@@ -3,15 +3,11 @@
         "python3", "-m", "sglang.launch_server", "--port=8000", "--host=0.0.0.0"
     ],
     "server_args": {
-        "model": ["zai-org/GLM-4.6", "zai-org/GLM-4.6-FP8"],
+        "model": ["zai-org/GLM-4.6"],
         "tp-size": [8],
-        "kv-cache-dtype": [null, "fp8_e4m3"],
-        "speculative-algorithm": [null, "EAGLE"],
-        "speculative-num-steps": [3, 5],
+        "speculative-algorithm": ["EAGLE"],
+        "speculative-num-steps": [3],
         "speculative-eagle-topk": [1],
-        "speculative-num-draft-tokens": [4, 8],
-        "enable-flashinfer-allreduce-fusion": [true, false],
-        "enable-fused-qk-norm-rope": [true, false],
-        "enable-shared-experts-fusion": [true, false]
+        "speculative-num-draft-tokens": [4]
     }
 }
