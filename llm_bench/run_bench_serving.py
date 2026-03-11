@@ -18,18 +18,18 @@ import subprocess
 from argparse import Namespace
 from itertools import product
 import time
-from utils import generate_config_permutations, run_command, kill_process, wait_for_health, get_server_args_from_config_for_mlflow, get_full_command_shell_from_config, ensure_model_downloaded
+from utils import generate_config_permutations, launch_server_cmd, kill_process_tree, wait_for_server, get_server_args_from_config_for_mlflow, get_full_command_shell_from_config, ensure_model_downloaded
 
 from bench_serving import run_benchmark
 
 # TODO: server launch command and readiness check
 # ── Benchmark matrix ─────────────────────────────────────────────────────
 
-MODEL_NAME = "test"
-CONCURRENCIES = [2,4,8,16,32,64,128,256,512]
+MODEL_NAME = "zai-org/GLM-4.6"
+CONCURRENCIES = [1,2,4,8,16,32,64,128,256,512]
 INPUT_TOKS = [50, 100, 256, 512,1024,2048,4096,8192,10000]
 OUTPUT_TOKS = [500]
-PCMLS = [0, 0.5, 0.8, 0.95]
+PCMLS = [0]
 NUM_REQUESTS = 0
 SUMMARY_FILE = f"{MODEL_NAME.split('/')[-1]}.csv"
 experiment_name = MODEL_NAME
@@ -135,7 +135,7 @@ def main():
             num_requests=NUM_REQUESTS,
             concurrency=concurrency,
             request_rate=REQUEST_PARAMS["request_rate"],
-            model=MODEL_NAME,
+            model=None,
             chat=REQUEST_PARAMS["chat"],
             stream=REQUEST_PARAMS["stream"],
             prompt_tokens=input_tok,
@@ -194,7 +194,7 @@ if __name__ == "__main__":
     import os
     os.environ["MLFLOW_TRACKING_URI"] = "http://admin:*********@a8e6c4207413949b898c70462c6f63c6-705429131.us-west-2.elb.amazonaws.com:5000/"
 
-    base_config_dir = "/home/ubuntu/benchmark/configs/glm-4p6/h200/sglang"
+    base_config_dir = "/workspace/benchmark/configs/glm-4p6/h200/vllm"
     search_space_path = os.path.join(base_config_dir, "search_space.json")
     config_paths = generate_config_permutations(search_space_path, base_config_dir)
     print(f"Generated {len(config_paths)} configs")
@@ -208,15 +208,13 @@ if __name__ == "__main__":
         process = None
         try:
             ensure_model_downloaded(model_name)
-            process = run_command(full_command)
-            if not wait_for_health():
-                print("Health endpoint not ready after 20 seconds, killing process")
-                kill_process(process)
-                raise RuntimeError("Health endpoint not ready after 20 seconds")
+            process = launch_server_cmd(full_command)
+            wait_for_server(BASE_URL, process=process)
+            print("Server is ready")
 
             MODEL_PARAMS = {
-                "server": "sglang",
-                "version": "0.5.9",
+                "server": "vllm",
+                "version": "0.16.0",
                 **server_args,
             }
 
@@ -233,4 +231,4 @@ if __name__ == "__main__":
             print(f"Error: {e}")
         finally:
             if process:
-                kill_process(process)
+                kill_process_tree(process.pid)

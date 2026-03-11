@@ -4,8 +4,8 @@
     ],
     "server_args": {
         "model": ["zai-org/GLM-4.6", "zai-org/GLM-4.6-FP8"],
-        "tp-size": [4,8],
-        "speculative-config.method": [null, "mtp"],
+        "tensor-parallel-size": [4,8],
+        "speculative-config.method": ["mtp"],
         "speculative-config.num_speculative_tokens": [1]
     }
 }
