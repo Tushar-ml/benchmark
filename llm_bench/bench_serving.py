@@ -121,8 +121,6 @@ def format_openai_payload(args, prompt: str, max_tokens: int) -> dict:
         "temperature": args.temperature,
         "ignore_eos": True,
     }
-    if args.stream:
-        data["stream_options"] = {"include_usage": True}
     if args.chat:
         data["messages"] = [{"role": "user", "content": prompt}]
     else:
@@ -167,6 +165,7 @@ async def send_request(
     semaphore: asyncio.Semaphore,
 ) -> RequestResult:
     prompt = build_prompt(args)
+    prompt_tok_count = len(tokenizer.encode(prompt))
 
     max_tokens = args.max_tokens
     if args.max_tokens_range > 0:
@@ -207,9 +206,8 @@ async def send_request(
                         except json.JSONDecodeError:
                             continue
                         text, ct, pt = parse_chunk(args, chunk_data)
-                        # Last chunk typically has usage with total counts (from include_usage)
                         if ct is not None:
-                            usage_comp_tokens = ct
+                            usage_comp_tokens = (usage_comp_tokens or 0) + ct
                         if pt is not None:
                             usage_prompt_tokens = pt
                         if text:
@@ -228,14 +226,12 @@ async def send_request(
                 if t_first_token is None:
                     t_first_token = t_end
 
-                # Use only token counts from API usage (no tokenizer fallback)
-                output_tok_count = usage_comp_tokens if usage_comp_tokens is not None else 0
-                prompt_tok_final = usage_prompt_tokens if usage_prompt_tokens is not None else 0
+                output_tok_count = usage_comp_tokens or len(tokenizer.encode(combined_text, allowed_special="all"))
 
                 return RequestResult(
                     request_id=request_id,
                     success=True,
-                    prompt_tokens=prompt_tok_final,
+                    prompt_tokens=usage_prompt_tokens or prompt_tok_count,
                     output_tokens=output_tok_count,
                     ttft_ms=(t_first_token - t_start) * 1000,
                     total_latency_ms=(t_end - t_start) * 1000,
@@ -363,11 +359,9 @@ async def run_benchmark(args):
         r.output_tokens / (r.total_latency_ms / 1000) if r.total_latency_ms > 0 else 0
         for r in ok_results
     ]
-    # TPOT only from requests that produced output (avoids 0 from empty/missing-usage responses)
     tpots = [
-        r.generation_latency_ms / r.output_tokens
+        r.generation_latency_ms / r.output_tokens if r.output_tokens > 0 else 0
         for r in ok_results
-        if r.output_tokens > 0
     ]
 
     total_output_tokens = sum(output_toks)
@@ -406,22 +400,13 @@ async def run_benchmark(args):
         })
 
     sorted_tpots = sorted(tpots)
-    if tpots:
-        entries.update({
-            "avg_tpot_ms": f"{sum(tpots) / len(tpots):.2f}",
-            "median_tpot_ms": f"{percentile(sorted_tpots, 50):.2f}",
-            "p90_tpot_ms": f"{percentile(sorted_tpots, 90):.2f}",
-            "p95_tpot_ms": f"{percentile(sorted_tpots, 95):.2f}",
-            "p99_tpot_ms": f"{percentile(sorted_tpots, 99):.2f}",
-        })
-    else:
-        entries.update({
-            "avg_tpot_ms": "N/A",
-            "median_tpot_ms": "N/A",
-            "p90_tpot_ms": "N/A",
-            "p95_tpot_ms": "N/A",
-            "p99_tpot_ms": "N/A",
-        })
+    entries.update({
+        "avg_tpot_ms": f"{sum(tpots) / len(tpots):.2f}",
+        "median_tpot_ms": f"{percentile(sorted_tpots, 50):.2f}",
+        "p90_tpot_ms": f"{percentile(sorted_tpots, 90):.2f}",
+        "p95_tpot_ms": f"{percentile(sorted_tpots, 95):.2f}",
+        "p99_tpot_ms": f"{percentile(sorted_tpots, 99):.2f}",
+    })
 
     sorted_throughputs = sorted(throughputs)
     entries.update({
@@ -555,4 +540,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
