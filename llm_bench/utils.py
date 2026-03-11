@@ -288,7 +288,7 @@ def wait_for_server(
         process: Optional server process used for early-exit checks.
     """
     wait_for_http_ready(
-        url=f"{base_url}/v1/models",
+        url=f"{base_url}/models",
         timeout=timeout,
         process=process,
         headers={"Authorization": "Bearer None"},
@@ -305,22 +305,6 @@ def kill_process(process: subprocess.Popen) -> None:
         raise subprocess.CalledProcessError(process.returncode, process.args)
 
     return process
-
-def wait_for_health():
-    """Wait for the health endpoint to be ready."""
-    import requests
-    import time
-
-    max_retries = 100
-    for _ in range(max_retries):
-        try:
-            response = requests.get("http://localhost:8000/health")
-            if response.status_code == 200:
-                return True
-        except requests.exceptions.RequestException:
-            pass
-        time.sleep(10)
-    return False
 
 def kill_process_tree(parent_pid, include_parent: bool = True, skip_pid: int = None):
     """Kill the process and all its child processes."""
