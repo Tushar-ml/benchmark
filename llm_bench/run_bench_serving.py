@@ -26,6 +26,7 @@ from bench_serving import run_benchmark
 # ── Benchmark matrix ─────────────────────────────────────────────────────
 
 MODEL_NAME = "zai-org/GLM-4.6"
+PORT = =8000
 CONCURRENCIES = [1, 10, 20, 50, 100]
 INPUT_TOKS = [100, 1000, 10000]
 OUTPUT_TOKS = [200]
@@ -40,7 +41,7 @@ dry_run = False
 MODEL_PARAMS = {}
 REQUEST_PARAMS = {}
 
-BASE_URL = "http://localhost:8000/v1"
+BASE_URL = f"http://localhost:{PORT}/v1"
 API_KEY = os.getenv("BENCH_API_KEY", "")
 EXTRA_HEADERS = ["id:f49b2e20-fef3-4441-9358-897f946b8ae2"]
 
@@ -257,7 +258,7 @@ if __name__ == "__main__":
 
             else:
                 ensure_model_downloaded(model_name)
-                process = launch_server_cmd(full_command)
+                process = launch_server_cmd(full_command , PORT)
                 wait_for_server(BASE_URL, process=process)
                 print("Server is ready")
 
