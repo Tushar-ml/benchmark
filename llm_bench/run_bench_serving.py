@@ -215,6 +215,7 @@ if __name__ == "__main__":
             MODEL_PARAMS = {
                 "server": "vllm",
                 "version": "0.16.0",
+                "quantization": "fp16", #fp16,fp8,mxfp4,nvfp4
                 **server_args,
             }
 
