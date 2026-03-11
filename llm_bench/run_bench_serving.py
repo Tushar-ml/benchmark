@@ -33,8 +33,8 @@ PCMLS = [0]
 NUM_REQUESTS = 0
 SUMMARY_FILE = f"{MODEL_NAME.split('/')[-1]}.csv"
 experiment_name = MODEL_NAME
-warmup = False
-dry_run = True
+do_warmup = True
+dry_run = False
 
 
 MODEL_PARAMS = {}
@@ -114,6 +114,19 @@ def log_to_mlflow(mlflow, entries: dict, bench_params: dict):
 
 # ── Main ─────────────────────────────────────────────────────────────────
 
+def warmup():
+    import requests
+    for _ in range(5):
+        model_name = requests.get(BASE_URL + "/models").json()["data"][0]["id"]
+        response = requests.post(BASE_URL + "/chat/completions", json={
+            "model": model_name,
+            "messages": [{"role": "user", "content": "Hello, how are you?"}],
+            "max_tokens": 100,
+            "temperature": 0.0,
+        })
+        print(response.json())
+
+    
 def main(dry_run_json=None):
     mlflow_enabled = use_mlflow()
 
@@ -247,6 +260,9 @@ if __name__ == "__main__":
                 process = launch_server_cmd(full_command)
                 wait_for_server(BASE_URL, process=process)
                 print("Server is ready")
+
+                if do_warmup:
+                    warmup()
 
             main(dry_run_json)
         except Exception as e:
