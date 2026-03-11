@@ -4,17 +4,14 @@
     ],
     "server_args": {
         "model": ["zai-org/GLM-4.6", "zai-org/GLM-4.6-FP8"],
-        "tp_size": [8],
-        "kv_cache_dtype": [null, "fp8_e4m3"],
-        "speculative_algorithm": [null, "EAGLE"],
-        "speculative_num_steps": [3, 5],
-        "speculative_eagle_topk": [1],
-        "speculative_num_draft_tokens": [4, 8],
-        "enable_flashinfer_allreduce_fusion": [true, false],
-        "enable_fused_qk_norm_rope": [true, false],
-        "enable_shared_experts_fusion": [true, false]
-    },
-    "environment_variables": {
-        "SGLANG_ENABLE_SPEC_V2": [null, "1"]
+        "tp-size": [8],
+        "kv-cache-dtype": [null, "fp8_e4m3"],
+        "speculative-algorithm": [null, "EAGLE"],
+        "speculative-num-steps": [3, 5],
+        "speculative-eagle-topk": [1],
+        "speculative-num-draft-tokens": [4, 8],
+        "enable-flashinfer-allreduce-fusion": [true, false],
+        "enable-fused-qk-norm-rope": [true, false],
+        "enable-shared-experts-fusion": [true, false]
     }
 }

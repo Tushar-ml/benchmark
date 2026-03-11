@@ -192,7 +192,7 @@ def main():
 if __name__ == "__main__":
 
     import os
-    os.environ["MLFLOW_TRACKING_URI"] = "http://admin:********@a8e6c4207413949b898c70462c6f63c6-705429131.us-west-2.elb.amazonaws.com:5000/"
+    os.environ["MLFLOW_TRACKING_URI"] = "http://admin:*********@a8e6c4207413949b898c70462c6f63c6-705429131.us-west-2.elb.amazonaws.com:5000/"
 
     base_config_dir = "/home/ubuntu/benchmark/configs/glm-4p6/h200/sglang"
     search_space_path = os.path.join(base_config_dir, "search_space.json")

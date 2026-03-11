@@ -104,7 +104,7 @@ def get_server_args_from_config(config: dict[str, Any]) -> list[str]:
     for k, v in server_args.items():
         if v is None or v is False:
             continue
-        arg_key = k.replace("_", "-")
+        arg_key = k
         if v is True:
             out.append(f"--{arg_key}")
         else:
@@ -125,7 +125,7 @@ def get_server_args_from_config_for_mlflow(config_path: str | Path) -> dict[str,
     for k, v in server_args.items():
         if v is None or v is False:
             continue
-        arg_key = k.replace("_", "-")
+        arg_key = k
         if v is True:
             out[f"server_args::{arg_key}"] = "true"
         else:
