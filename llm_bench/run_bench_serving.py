@@ -33,7 +33,8 @@ PCMLS = [0]
 NUM_REQUESTS = 0
 SUMMARY_FILE = f"{MODEL_NAME.split('/')[-1]}.csv"
 experiment_name = MODEL_NAME
-warmup = False
+warmup = True
+dry_run = False
 
 
 MODEL_PARAMS = {}
