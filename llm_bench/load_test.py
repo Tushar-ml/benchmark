@@ -199,7 +199,6 @@ class FakeImagePool:
     width = None
     height = None
     total_count = 0
-    image_cache = None
     remaining_indices = None
 
     @classmethod
@@ -230,20 +229,19 @@ class FakeImagePool:
     @classmethod
     def init(cls, parsed_options):
         with cls.lock:
-            if cls.image_cache is not None:
+            if cls.remaining_indices is not None:
                 return
             width, height = cls._parse_resolution(parsed_options.fake_image_resolution)
             cls.width = width
             cls.height = height
             cls.total_count = max(0, parsed_options.fake_image_count)
-            cls.image_cache = {}
             cls.remaining_indices = list(range(cls.total_count))
             random.shuffle(cls.remaining_indices)
 
     @classmethod
     def sample(cls, count: int):
         with cls.lock:
-            if cls.image_cache is None:
+            if cls.remaining_indices is None:
                 return []
             if count <= 0:
                 return []
@@ -256,10 +254,8 @@ class FakeImagePool:
             selected_indices = cls.remaining_indices[:count]
             cls.remaining_indices = cls.remaining_indices[count:]
             selected = []
-            for image_idx in selected_indices:
-                if image_idx not in cls.image_cache:
-                    cls.image_cache[image_idx] = cls._make_data_url(cls.width, cls.height)
-                selected.append(cls.image_cache[image_idx])
+            for _ in selected_indices:
+                selected.append(cls._make_data_url(cls.width, cls.height))
             return selected
 
 
@@ -825,15 +821,13 @@ class LLMUser(HttpUser):
         prompt_suffix = random.choice(prompts)
         
         if isinstance(self.input, str):
-            images = FakeImagePool.sample(self.environment.parsed_options.fake_images_per_request)
+            images = FakeImagePool.sample(self.environment.parsed_options.fake_image_count)
             return _maybe_randomize(prompt_suffix), images if images else None
         else:
             item = self.input[random.randint(0, len(self.input) - 1)]
             assert "prompt" in item
             item_images = item.get("images", None)
-            fake_images = FakeImagePool.sample(
-                self.environment.parsed_options.fake_images_per_request
-            )
+            fake_images = FakeImagePool.sample(self.environment.parsed_options.fake_image_count)
             if fake_images:
                 item_images = (item_images or []) + fake_images
             return _maybe_randomize(prompt_suffix), item_images
@@ -1162,13 +1156,7 @@ def init_parser(parser):
         "--fake-image-count",
         type=int,
         default=0,
-        help="Number of unique fake images in the sampling deck (generated lazily per request, not at startup).",
-    )
-    parser.add_argument(
-        "--fake-images-per-request",
-        type=int,
-        default=0,
-        help="How many generated fake images to append to each request (sampled without repetition per request).",
+        help="Number of unique fake images in the sampling deck and images appended per request (generated lazily per request, not at startup).",
     )
 
 @events.quitting.add_listener
