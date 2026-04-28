@@ -16,42 +16,30 @@ import subprocess
 from argparse import Namespace
 from itertools import product
 import time
-
-
+from utils import generate_config_permutations, launch_server_cmd, kill_process_tree, wait_for_server, get_server_args_from_config_for_mlflow, get_full_command_shell_from_config, ensure_model_downloaded
+import json
 from bench_serving import run_benchmark
 
 # TODO: server launch command and readiness check
 # ── Benchmark matrix ─────────────────────────────────────────────────────
 
-MODEL_NAME = "openai/gpt-oss-120b"
-CONCURRENCIES = [2,4,8,16,32,64,128,256,512]
-INPUT_TOKS = [50, 100, 256, 512,1024,2048,4096,8192,10000]
-OUTPUT_TOKS = [500]
-PCMLS = [0, 0.5, 0.8, 0.95]
+MODEL_NAME = "zai-org/GLM-4.6"
+PORT = =8000
+CONCURRENCIES = [1, 10, 20, 50, 100]
+INPUT_TOKS = [100, 1000, 10000]
+OUTPUT_TOKS = [200]
+PCMLS = [0]
 NUM_REQUESTS = 0
-SUMMARY_FILE = f"{MODEL_NAME}.csv"
+SUMMARY_FILE = f"{MODEL_NAME.split('/')[-1]}.csv"
 experiment_name = MODEL_NAME
-warmup = False
+do_warmup = True
+dry_run = False
 
-MODEL_PARAMS = {
-    "model": "openai/gpt-oss-120b",
-    "server": "vllm",
-    "version": "0.16.0",
-    "server_args::max_num_seqs": 128,
-    "server_args::gpu_memory_utilization": 0.95,
-    "gpu_type": "h100",
-    "gpu_count": 1,
-    "gpu_arch": "sxm"
-}
 
-REQUEST_PARAMS = {
-    "request_rate": None,
-    "stream": True,
-    "chat": True,
-    "temperature": 0.0,
-}
+MODEL_PARAMS = {}
+REQUEST_PARAMS = {}
 
-BASE_URL = "http://localhost:8000/v1"
+BASE_URL = f"http://localhost:{PORT}/v1"
 API_KEY = os.getenv("BENCH_API_KEY", "")
 EXTRA_HEADERS = ["id:f49b2e20-fef3-4441-9358-897f946b8ae2"]
 
@@ -73,7 +61,7 @@ METRIC_KEYS = {
 def use_mlflow() -> bool:
     return bool(
         os.environ.get("MLFLOW_TRACKING_URI")
-    ) and not warmup
+    )
 
 def get_device_info() -> dict:
     """Query nvidia-smi for GPU device information."""
@@ -125,7 +113,20 @@ def log_to_mlflow(mlflow, entries: dict, bench_params: dict):
 
 # ── Main ─────────────────────────────────────────────────────────────────
 
-def main():
+def warmup():
+    import requests
+    for _ in range(5):
+        model_name = requests.get(BASE_URL + "/models").json()["data"][0]["id"]
+        response = requests.post(BASE_URL + "/chat/completions", json={
+            "model": model_name,
+            "messages": [{"role": "user", "content": "Hello, how are you?"}],
+            "max_tokens": 100,
+            "temperature": 0.0,
+        })
+        print(response.json())
+
+    
+def main(dry_run_json=None):
     mlflow_enabled = use_mlflow()
 
     if mlflow_enabled:
@@ -147,7 +148,7 @@ def main():
             num_requests=NUM_REQUESTS,
             concurrency=concurrency,
             request_rate=REQUEST_PARAMS["request_rate"],
-            model=MODEL_NAME,
+            model=None,
             chat=REQUEST_PARAMS["chat"],
             stream=REQUEST_PARAMS["stream"],
             prompt_tokens=input_tok,
@@ -172,6 +173,7 @@ def main():
                 "concurrency": concurrency,
                 "input_tokens": input_tok,
                 "output_tokens": output_tok,
+                "prompt_cache_fraction": pcml_frac,
                 "prompt_cache_max_len": pcml,
                 "prompt_randomize": True
             }
@@ -183,15 +185,23 @@ def main():
                 f"{MODEL_NAME.split('/')[-1]}_c{concurrency}_i{input_tok}_o{output_tok}_{time.strftime('%Y-%m-%d-%H-%M-%S')}",
             )
 
-            with mlflow.start_run(run_name=run_name):
-                exit_code, entries = asyncio.run(run_benchmark(args))
+            if not dry_run_json:
+                with mlflow.start_run(run_name=run_name):
+                    exit_code, entries = asyncio.run(run_benchmark(args))
 
-                if entries:
-                    log_to_mlflow(mlflow, entries, bench_params)
-                    print(f"Logged run '{run_name}' to MLflow ({len(entries)} fields)")
-                else:
-                    mlflow.set_tag("status", "all_requests_failed")
-                    print(f"Run '{run_name}' failed – tagged in MLflow")
+                    if entries:
+                        log_to_mlflow(mlflow, entries, bench_params)
+                        print(f"Logged run '{run_name}' to MLflow ({len(entries)} fields)")
+                    else:
+                        mlflow.set_tag("status", "all_requests_failed")
+                        print(f"Run '{run_name}' failed – tagged in MLflow")
+            else:
+                dry_run_json["run_name"] = run_name
+                dry_run_json["params"].update(bench_params)
+
+                with open(f"dry_runs/dry_run_{run_name}.json", "w") as f:
+                    json.dump(dry_run_json, f)
+
         else:
             exit_code, _entries = asyncio.run(run_benchmark(args))
 
@@ -202,4 +212,60 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+
+    import os
+    os.environ["MLFLOW_TRACKING_URI"] = "http://admin:*********@a8e6c4207413949b898c70462c6f63c6-705429131.us-west-2.elb.amazonaws.com:5000/"
+
+    base_config_dir = "../configs/glm-4p6/h200/vllm"
+    search_space_path = os.path.join(base_config_dir, "search_space.json")
+    config_paths = generate_config_permutations(search_space_path, base_config_dir)
+    print(f"Generated {len(config_paths)} configs")
+
+
+    for config_path in config_paths:
+
+        server_args = get_server_args_from_config_for_mlflow(config_path)
+        full_command = get_full_command_shell_from_config(config_path)
+        model_name = server_args["server_args::model"]
+        process = None
+        try:
+
+            MODEL_PARAMS = {
+                "server": "vllm",
+                "version": "0.16.0",
+                "quantization": "fp16", #fp16,fp8,mxfp4,nvfp4
+                "gpu::type": "h200",
+                "gpu::count": 2,
+                **server_args,
+            }
+
+            REQUEST_PARAMS = {
+                "request_rate": None,
+                "stream": True,
+                "chat": True,
+                "temperature": 0.0,
+            }
+
+            dry_run_json = None
+            if dry_run:
+                os.makedirs("dry_runs", exist_ok=True)
+                dry_run_json = {
+                    "params": MODEL_PARAMS
+                }
+                dry_run_json["params"].update(REQUEST_PARAMS)
+
+            else:
+                ensure_model_downloaded(model_name)
+                process = launch_server_cmd(full_command , PORT)
+                wait_for_server(BASE_URL, process=process)
+                print("Server is ready")
+
+                if do_warmup:
+                    warmup()
+
+            main(dry_run_json)
+        except Exception as e:
+            print(f"Error: {e}")
+        finally:
+            if process:
+                kill_process_tree(process.pid)

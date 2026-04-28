@@ -1,3 +1,6 @@
 __pycache__/
 *.csv
 plots/
+.venv-vllm/
+.venv-sglang/
+*.yaml

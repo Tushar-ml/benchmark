@@ -1,0 +1,13 @@
+{
+    "base_command": [
+        "python3", "-m", "sglang.launch_server", "--port=8000", "--host=0.0.0.0"
+    ],
+    "server_args": {
+        "model": ["zai-org/GLM-4.6"],
+        "tp-size": [8],
+        "speculative-algorithm": ["EAGLE"],
+        "speculative-num-steps": [3],
+        "speculative-eagle-topk": [1],
+        "speculative-num-draft-tokens": [4]
+    }
+}
