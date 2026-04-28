@@ -370,6 +370,9 @@ class OpenAIProvider(BaseProvider):
             "n": self.parsed_options.n,
             "ignore_eos": True,
         }
+        if self.parsed_options.stream:
+            data["stream_options"] = {"include_usage": True}
+        
         if self.parsed_options.chat:
             if images is None:
                 data["messages"] = [{"role": "user", "content": prompt}]
@@ -396,17 +399,21 @@ class OpenAIProvider(BaseProvider):
     def parse_output_json(self, data, prompt):
         usage = data.get("usage", None)
 
-        assert len(data["choices"]) == 1, f"Too many choices {len(data['choices'])}"
-        choice = data["choices"][0]
-        if self.parsed_options.chat:
-            if self.parsed_options.stream:
-                text = choice["delta"].get("content", "") or choice["delta"].get("reasoning_content", "")
-            else:
-                text = choice["message"]["content"] or choice["delta"].get("reasoning_content", "")
-        else:
-            text = choice["text"]
+        logprobs = None
+        text = ""
 
-        logprobs = choice.get("logprobs", None)
+        if len(data["choices"]) == 1:
+            choice = data["choices"][0]
+            if self.parsed_options.chat:
+                if self.parsed_options.stream:
+                    text = choice["delta"].get("content", "") or choice["delta"].get("reasoning_content", "")
+                else:
+                    text = choice["message"]["content"] or choice["delta"].get("reasoning_content", "")
+            else:
+                text = choice["text"]
+    
+            logprobs = choice.get("logprobs", None)
+        
         return ChunkMetadata(
             text=text,
             logprob_tokens=len(logprobs["tokens"]) if logprobs else None,
