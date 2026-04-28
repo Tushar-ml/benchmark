@@ -1,8 +1,10 @@
 import abc
 import argparse
+import base64
 import csv
 from dataclasses import dataclass
 from functools import partial
+import io
 import os
 import random
 import sys
@@ -15,6 +17,7 @@ import time
 import orjson
 import threading
 import tiktoken
+from PIL import Image
 
 try:
     import locust_plugins
@@ -189,6 +192,72 @@ class RequestCounter:
             if cls.completed >= cls.target:
                 print(f"Reached {cls.target} requests, stopping test")
                 cls.environment.runner.quit()
+
+
+class FakeImagePool:
+    lock = threading.Lock()
+    images = None
+    remaining_images = None
+
+    @classmethod
+    def _parse_resolution(cls, resolution: str):
+        try:
+            width_text, height_text = resolution.lower().split("x", 1)
+            width = int(width_text)
+            height = int(height_text)
+        except Exception as e:
+            raise ValueError(
+                f"Invalid fake image resolution '{resolution}', expected WIDTHxHEIGHT (e.g. 512x512)"
+            ) from e
+        if width <= 0 or height <= 0:
+            raise ValueError(
+                f"Invalid fake image resolution '{resolution}', width/height must be positive"
+            )
+        return width, height
+
+    @classmethod
+    def _make_data_url(cls, width: int, height: int):
+        # Random pixels help avoid duplicates and better emulate varied image payloads.
+        image = Image.frombytes("RGB", (width, height), os.urandom(width * height * 3))
+        buffer = io.BytesIO()
+        image.save(buffer, format="PNG")
+        encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+        return f"data:image/png;base64,{encoded}"
+
+    @classmethod
+    def init(cls, parsed_options):
+        if parsed_options.fake_image_count <= 0:
+            cls.images = []
+            cls.remaining_images = []
+            return
+        with cls.lock:
+            if cls.images is not None:
+                return
+            width, height = cls._parse_resolution(parsed_options.fake_image_resolution)
+            print(
+                f"Generating {parsed_options.fake_image_count} fake images at {width}x{height}"
+            )
+            cls.images = [
+                cls._make_data_url(width, height)
+                for _ in range(parsed_options.fake_image_count)
+            ]
+            cls.remaining_images = cls.images.copy()
+            random.shuffle(cls.remaining_images)
+
+    @classmethod
+    def sample(cls, count: int):
+        with cls.lock:
+            if not cls.images:
+                return []
+            if count <= 0:
+                return []
+            count = min(count, len(cls.images))
+            if len(cls.remaining_images) < count:
+                cls.remaining_images = cls.images.copy()
+                random.shuffle(cls.remaining_images)
+            selected = cls.remaining_images[:count]
+            cls.remaining_images = cls.remaining_images[count:]
+            return selected
 
 
 class InitTracker:
@@ -648,6 +717,7 @@ class LLMUser(HttpUser):
         self.provider_formatter = PROVIDER_CLASS_MAP[self.provider](
             self.model, self.environment.parsed_options
         )
+        FakeImagePool.init(self.environment.parsed_options)
 
         self.stream = self.environment.parsed_options.stream
         prompt_chars = self.environment.parsed_options.prompt_chars
@@ -752,11 +822,18 @@ class LLMUser(HttpUser):
         prompt_suffix = random.choice(prompts)
         
         if isinstance(self.input, str):
-            return _maybe_randomize(prompt_suffix), None
+            images = FakeImagePool.sample(self.environment.parsed_options.fake_images_per_request)
+            return _maybe_randomize(prompt_suffix), images if images else None
         else:
             item = self.input[random.randint(0, len(self.input) - 1)]
             assert "prompt" in item
-            return _maybe_randomize(prompt_suffix), item.get("images", None)
+            item_images = item.get("images", None)
+            fake_images = FakeImagePool.sample(
+                self.environment.parsed_options.fake_images_per_request
+            )
+            if fake_images:
+                item_images = (item_images or []) + fake_images
+            return _maybe_randomize(prompt_suffix), item_images
 
     @task
     def generate_text(self):
@@ -1071,6 +1148,24 @@ def init_parser(parser):
         default=None,
         help="Stop the test after this many total requests complete (across all users). "
              "Use instead of or alongside -t when individual requests may exceed the time limit.",
+    )
+    parser.add_argument(
+        "--fake-image-resolution",
+        type=str,
+        default="512x512",
+        help="Resolution of generated fake images in WIDTHxHEIGHT format.",
+    )
+    parser.add_argument(
+        "--fake-image-count",
+        type=int,
+        default=0,
+        help="Number of fake images to generate at startup with Pillow.",
+    )
+    parser.add_argument(
+        "--fake-images-per-request",
+        type=int,
+        default=0,
+        help="How many generated fake images to append to each request (sampled without repetition per request).",
     )
 
 @events.quitting.add_listener
