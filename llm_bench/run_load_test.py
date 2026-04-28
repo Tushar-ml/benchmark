@@ -12,9 +12,9 @@ for user in users:
 
                 pcml = int(pcml*input_tok)
                 url = "http://localhost:8000/v1"
-                token = "<jwt_token>"
+                token = "sk-xxxxxxxxxxxxxx"
 
                 qps = 10
                 max_requests = 5
                 os.system(
-                    f"locust -t 30sec -pcml {pcml} --users {user} -r {user} -o {output_tok} -H {url} -p {input_tok} --api-key {token} --model={model_name} --prompt-randomize --chat --provider openai --temperature 0.0 --fake-image-count 100 --fake-images-per-request 1 --fake-image-resolution 512x512 --header id:f49b2e20-fef3-4441-9358-897f946b8ae2 --summary test-vllm-v5.csv")
+                    f"locust -t 30sec -pcml {pcml} --users {user} -r {user} -o {output_tok} -H {url} -p {input_tok} --api-key {token} --model={model_name} --prompt-randomize --chat --provider openai --temperature 0.0 --fake-image-count 1 --fake-images-per-request 1 --fake-image-resolution 512x512 --header id:f49b2e20-fef3-4441-9358-897f946b8ae2 --summary test-vllm-v5.csv")

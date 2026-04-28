@@ -196,8 +196,11 @@ class RequestCounter:
 
 class FakeImagePool:
     lock = threading.Lock()
-    images = None
-    remaining_images = None
+    width = None
+    height = None
+    total_count = 0
+    image_cache = None
+    remaining_indices = None
 
     @classmethod
     def _parse_resolution(cls, resolution: str):
@@ -226,37 +229,37 @@ class FakeImagePool:
 
     @classmethod
     def init(cls, parsed_options):
-        if parsed_options.fake_image_count <= 0:
-            cls.images = []
-            cls.remaining_images = []
-            return
         with cls.lock:
-            if cls.images is not None:
+            if cls.image_cache is not None:
                 return
             width, height = cls._parse_resolution(parsed_options.fake_image_resolution)
-            print(
-                f"Generating {parsed_options.fake_image_count} fake images at {width}x{height}"
-            )
-            cls.images = [
-                cls._make_data_url(width, height)
-                for _ in range(parsed_options.fake_image_count)
-            ]
-            cls.remaining_images = cls.images.copy()
-            random.shuffle(cls.remaining_images)
+            cls.width = width
+            cls.height = height
+            cls.total_count = max(0, parsed_options.fake_image_count)
+            cls.image_cache = {}
+            cls.remaining_indices = list(range(cls.total_count))
+            random.shuffle(cls.remaining_indices)
 
     @classmethod
     def sample(cls, count: int):
         with cls.lock:
-            if not cls.images:
+            if cls.image_cache is None:
                 return []
             if count <= 0:
                 return []
-            count = min(count, len(cls.images))
-            if len(cls.remaining_images) < count:
-                cls.remaining_images = cls.images.copy()
-                random.shuffle(cls.remaining_images)
-            selected = cls.remaining_images[:count]
-            cls.remaining_images = cls.remaining_images[count:]
+            count = min(count, cls.total_count)
+            if count == 0:
+                return []
+            if len(cls.remaining_indices) < count:
+                cls.remaining_indices = list(range(cls.total_count))
+                random.shuffle(cls.remaining_indices)
+            selected_indices = cls.remaining_indices[:count]
+            cls.remaining_indices = cls.remaining_indices[count:]
+            selected = []
+            for image_idx in selected_indices:
+                if image_idx not in cls.image_cache:
+                    cls.image_cache[image_idx] = cls._make_data_url(cls.width, cls.height)
+                selected.append(cls.image_cache[image_idx])
             return selected
 
 
@@ -1159,7 +1162,7 @@ def init_parser(parser):
         "--fake-image-count",
         type=int,
         default=0,
-        help="Number of fake images to generate at startup with Pillow.",
+        help="Number of unique fake images in the sampling deck (generated lazily per request, not at startup).",
     )
     parser.add_argument(
         "--fake-images-per-request",
