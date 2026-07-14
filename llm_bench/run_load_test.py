@@ -17,4 +17,4 @@ for user in users:
                 qps = 10
                 max_requests = 5
                 os.system(
-                    f"locust -t 30sec -pcml {pcml} --users {user} -r {user} -o {output_tok} -H {url} -p {input_tok} --api-key {token} --model={model_name} --prompt-randomize --chat --provider openai --temperature 0.0  --header id:f49b2e20-fef3-4441-9358-897f946b8ae2 --summary test-vllm-v5.csv")
+                    f"locust -t 30sec -pcml {pcml} --users {user} -r {user} -o {output_tok} -H {url} -p {input_tok} --api-key {token} --model={model_name} --prompt-randomize --chat --provider openai --stream --temperature 0.0  --header id:f49b2e20-fef3-4441-9358-897f946b8ae2 --summary test-vllm-v5.csv")
