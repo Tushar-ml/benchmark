@@ -23,6 +23,7 @@ Usage examples:
 import argparse
 import asyncio
 import csv
+import itertools
 import json
 import os
 import random
@@ -61,6 +62,10 @@ PROMPT_PREFIX_TOKEN = "Pad "
 
 tokenizer = tiktoken.encoding_for_model("gpt-4")
 
+# Real-dataset mode: when args.dataset_prompts is a list, requests cycle through it
+# (already shuffled) instead of generating synthetic padding prompts.
+_dataset_counter = itertools.count()
+
 
 # ---------------------------------------------------------------------------
 # Result dataclass
@@ -84,6 +89,10 @@ class RequestResult:
 # ---------------------------------------------------------------------------
 
 def build_prompt(args) -> str:
+    dataset_prompts = getattr(args, "dataset_prompts", None)
+    if dataset_prompts:
+        return dataset_prompts[next(_dataset_counter) % len(dataset_prompts)]
+
     suffix = random.choice(PROMPTS)
     suffix_tokens = len(tokenizer.encode(suffix))
 
@@ -119,8 +128,9 @@ def format_openai_payload(args, prompt: str, max_tokens: int) -> dict:
         "max_tokens": max_tokens,
         "stream": args.stream,
         "temperature": args.temperature,
-        "ignore_eos": True,
     }
+    if getattr(args, "ignore_eos", True):
+        data["ignore_eos"] = True
     if args.chat:
         data["messages"] = [{"role": "user", "content": prompt}]
     else:
@@ -141,7 +151,8 @@ def get_endpoint(args) -> str:
 def parse_chunk(args, data: dict) -> tuple[str, Optional[int], Optional[int]]:
     """Returns (text, completion_tokens_from_usage, prompt_tokens_from_usage)."""
     usage = data.get("usage")
-    choice = data["choices"][0]
+    # the final streaming chunk may carry only `usage` with an empty `choices` list
+    choice = data["choices"][0] if data.get("choices") else {}
     if args.chat:
         if args.stream:
             text = choice.get("delta", {}).get("content", "") or choice.get("delta", {}).get("reasoning_content", "")
@@ -308,7 +319,10 @@ async def run_benchmark(args):
     print(f"  Benchmark: {args.num_requests} requests, concurrency {args.concurrency}")
     print(f"  Model:     {args.model}")
     print(f"  Endpoint:  {args.base_url}{get_endpoint(args)}")
-    print(f"  Prompt:    ~{args.prompt_tokens} tokens | Max output: {args.max_tokens} tokens")
+    if getattr(args, "dataset_prompts", None):
+        print(f"  Prompt:    real dataset ({len(args.dataset_prompts)} prompts) | Max output: {args.max_tokens} tokens")
+    else:
+        print(f"  Prompt:    ~{args.prompt_tokens} tokens | Max output: {args.max_tokens} tokens")
     print(f"  Stream:    {args.stream} | Chat: {args.chat}")
     print(f"{'=' * 70}")
 
