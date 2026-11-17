@@ -4,3 +4,4 @@ plots/
 .venv-vllm/
 .venv-sglang/
 *.yaml
+.env
